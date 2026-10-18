@@ -9,7 +9,7 @@ import android.database.sqlite.SQLiteOpenHelper
 enum class SaveOutcome { NEW, IMPROVED, UNCHANGED }
 
 /** 紀錄存在手機內建的 SQLite。一個學生、一個遊戲、一關只有一列。 */
-class Store(context: Context) : SQLiteOpenHelper(context, "classpass.db", null, 1) {
+class Store(context: Context) : SQLiteOpenHelper(context, "classpass.db", null, 2) {
 
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL(
@@ -28,9 +28,27 @@ class Store(context: Context) : SQLiteOpenHelper(context, "classpass.db", null, 
             )
             """.trimIndent(),
         )
+        createExtras(db)
     }
 
-    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
+    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
+        if (oldVersion < 2) createExtras(db)
+    }
+
+    /** 附加資料（CP2）以「學生＋遊戲」為單位存，data 是「key=value,key=value」 */
+    private fun createExtras(db: SQLiteDatabase) {
+        db.execSQL(
+            """
+            CREATE TABLE extras (
+                game TEXT NOT NULL,
+                cls TEXT NOT NULL,
+                seat INTEGER NOT NULL,
+                data TEXT NOT NULL,
+                PRIMARY KEY (game, cls, seat)
+            )
+            """.trimIndent(),
+        )
+    }
 
     /** 存一張 QR code 的所有關卡，每關只留最好的成績。回傳每關的結果（與 pass.levels 同順序）。 */
     fun save(pass: Pass, scannedAt: Long): List<SaveOutcome> {
@@ -63,6 +81,7 @@ class Store(context: Context) : SQLiteOpenHelper(context, "classpass.db", null, 
                 }
                 outcome
             }
+            if (pass.extras.isNotEmpty()) saveExtras(db, pass)
             db.setTransactionSuccessful()
             return outcomes
         } finally {
@@ -70,11 +89,34 @@ class Store(context: Context) : SQLiteOpenHelper(context, "classpass.db", null, 
         }
     }
 
-    /** 全部紀錄；game 為 null 時不篩選。依遊戲、班級、座號、完成時間排序。 */
+    private fun saveExtras(db: SQLiteDatabase, pass: Pass) {
+        val old = db.rawQuery(
+            "SELECT data FROM extras WHERE game = ? AND cls = ? AND seat = ?",
+            arrayOf(pass.game, pass.cls, pass.seat.toString()),
+        ).use { c -> if (c.moveToFirst()) decodeExtras(c.getString(0)) else emptyMap() }
+        db.insertWithOnConflict(
+            "extras", null,
+            ContentValues().apply {
+                put("game", pass.game)
+                put("cls", pass.cls)
+                put("seat", pass.seat)
+                put("data", encodeExtras(mergeExtras(old, pass.extras)))
+            },
+            SQLiteDatabase.CONFLICT_REPLACE,
+        )
+    }
+
+    /** 全部紀錄（含附加資料）；game 為 null 時不篩選。依遊戲、班級、座號、完成時間排序。 */
     fun all(game: String? = null): List<Record> {
-        val where = if (game == null) "" else "WHERE game = ?"
+        val where = if (game == null) "" else "WHERE r.game = ?"
         val args = if (game == null) null else arrayOf(game)
-        return query(readableDatabase, "$COLUMNS FROM records $where ORDER BY game, cls, seat, done_at", args)
+        return query(
+            readableDatabase,
+            "$COLUMNS, e.data FROM records r LEFT JOIN extras e " +
+                "ON e.game = r.game AND e.cls = r.cls AND e.seat = r.seat " +
+                "$where ORDER BY r.game, r.cls, r.seat, r.done_at",
+            args,
+        )
     }
 
     fun games(): List<String> =
@@ -82,13 +124,21 @@ class Store(context: Context) : SQLiteOpenHelper(context, "classpass.db", null, 
             buildList { while (c.moveToNext()) add(c.getString(0)) }
         }
 
+    /** 刪除一位學生在一個遊戲的所有關卡 */
+    fun deleteStudent(game: String, cls: String, seat: Int) {
+        val args = arrayOf(game, cls, seat.toString())
+        writableDatabase.delete("records", "game = ? AND cls = ? AND seat = ?", args)
+        writableDatabase.delete("extras", "game = ? AND cls = ? AND seat = ?", args)
+    }
+
     fun clear() {
         writableDatabase.delete("records", null, null)
+        writableDatabase.delete("extras", null, null)
     }
 
     private fun find(db: SQLiteDatabase, game: String, cls: String, seat: Int, level: String): Record? =
         query(
-            db, "$COLUMNS FROM records WHERE game = ? AND cls = ? AND seat = ? AND level = ?",
+            db, "$COLUMNS FROM records r WHERE game = ? AND cls = ? AND seat = ? AND level = ?",
             arrayOf(game, cls, seat.toString(), level),
         ).firstOrNull()
 
@@ -101,13 +151,19 @@ class Store(context: Context) : SQLiteOpenHelper(context, "classpass.db", null, 
                             game = c.getString(0), level = c.getString(1), title = c.getString(2),
                             cls = c.getString(3), seat = c.getInt(4), score = c.getInt(5),
                             max = c.getInt(6), doneAt = c.getLong(7), scannedAt = c.getLong(8),
-                        ),
+                        ).withExtras(if (c.columnCount > 9 && !c.isNull(9)) decodeExtras(c.getString(9)) else emptyMap()),
                     )
                 }
             }
         }
 
     private companion object {
-        const val COLUMNS = "SELECT game, level, title, cls, seat, score, max, done_at, scanned_at"
+        const val COLUMNS =
+            "SELECT r.game, r.level, r.title, r.cls, r.seat, r.score, r.max, r.done_at, r.scanned_at"
     }
 }
+
+private fun Record.withExtras(extras: Map<String, String>) = copy(
+    elapsed = extras["elapsed"]?.toLongOrNull(),
+    otherExtras = encodeExtras(extras - "elapsed"),
+)

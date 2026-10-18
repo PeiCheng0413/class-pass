@@ -63,7 +63,10 @@ import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import kotlinx.coroutines.delay
 import java.io.File
+import java.time.Instant
+import java.time.LocalDate
 import java.time.LocalDateTime
+import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
 private val Green = Color(0xFF15803D)
@@ -276,6 +279,8 @@ private fun RecordsScreen(store: Store) {
     // 依「遊戲＋班級＋座號」分組，一個學生一張卡片
     val groups = remember(records) { records.groupBy { Triple(it.game, it.cls, it.seat) }.toList() }
     var confirmClear by remember { mutableStateOf(false) }
+    // 要刪除的學生（遊戲、班級、座號）與筆數；null 表示沒有開確認視窗
+    var toDelete by remember { mutableStateOf<Pair<Triple<String, String, Int>, Int>?>(null) }
 
     Column(Modifier.fillMaxSize()) {
         if (games.size > 1) {
@@ -308,12 +313,24 @@ private fun RecordsScreen(store: Store) {
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     Column(Modifier.padding(14.dp)) {
-                        Row(verticalAlignment = Alignment.Bottom) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
                             Text("${key.second} 班 ${key.third} 號", fontSize = 28.sp, fontWeight = FontWeight.Bold)
                             if (filter == null && games.size > 1) {
-                                Text(key.first, fontSize = 18.sp, modifier = Modifier.padding(start = 12.dp, bottom = 3.dp))
+                                Text(key.first, fontSize = 18.sp, modifier = Modifier.padding(start = 12.dp))
+                            }
+                            Spacer(Modifier.weight(1f))
+                            TextButton(onClick = { toDelete = key to list.size }) {
+                                Text("刪除", fontSize = 20.sp, color = Red)
                             }
                         }
+                        // 各關中最近一次收到新成績的時間；有用時就接在後面（附加資料以學生為單位，各列都一樣）
+                        val elapsed = list.first().elapsed
+                        Text(
+                            "收到時間 " + formatScanTime(list.maxOf { it.scannedAt }) +
+                                (elapsed?.let { "　用時 " + formatElapsed(it) } ?: ""),
+                            fontSize = 18.sp,
+                            color = Color(0xFF444444),
+                        )
                         list.forEach { LevelRow(it.title, it.score, it.max) }
                     }
                 }
@@ -334,6 +351,24 @@ private fun RecordsScreen(store: Store) {
                 modifier = Modifier.weight(1f).height(60.dp),
             ) { Text("匯出 CSV", fontSize = 22.sp) }
         }
+    }
+
+    toDelete?.let { (key, count) ->
+        AlertDialog(
+            onDismissRequest = { toDelete = null },
+            title = { Text("刪除 ${key.second} 班 ${key.third} 號？", fontSize = 26.sp) },
+            text = { Text("${key.first} 的 $count 筆紀錄會刪除，無法復原。", fontSize = 22.sp) },
+            confirmButton = {
+                TextButton(onClick = {
+                    store.deleteStudent(key.first, key.second, key.third)
+                    version++
+                    toDelete = null
+                }) { Text("刪除", fontSize = 22.sp, color = Red) }
+            },
+            dismissButton = {
+                TextButton(onClick = { toDelete = null }) { Text("取消", fontSize = 22.sp) }
+            },
+        )
     }
 
     if (confirmClear) {
@@ -363,6 +398,13 @@ private fun FilterButton(label: String, selected: Boolean, onClick: () -> Unit) 
     } else {
         OutlinedButton(onClick = onClick) { Text(label, fontSize = 20.sp, color = Ink) }
     }
+}
+
+/** 今天的只顯示「14:32」，其他日子顯示「10/17 14:32」。 */
+private fun formatScanTime(sec: Long): String {
+    val t = Instant.ofEpochSecond(sec).atZone(ZoneId.systemDefault())
+    val pattern = if (t.toLocalDate() == LocalDate.now()) "HH:mm" else "M/d HH:mm"
+    return DateTimeFormatter.ofPattern(pattern).format(t)
 }
 
 /** 寫成 CSV 放在 cache/exports/，再透過 Android 分享選單送到 Line、Email 或雲端硬碟。 */

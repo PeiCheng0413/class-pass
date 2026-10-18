@@ -55,6 +55,7 @@
    - `levels`：放已經過關的關卡。`level` 是關卡代號（規則同遊戲代號），`title` 可以寫中文，`score` 是分數，`max` 是滿分。
    - 第一次使用時，畫面會請學生輸入班級和座號，之後就不用再輸入。
    - 想讓學生之後再叫出 QR code，呼叫 `ClassPass.showPassed('你的遊戲代號')`。
+   - 想記錄學生完成整個遊戲花了多久，可以多傳 `elapsed: 秒數`。用時只放進 QR code，不會顯示在學生畫面上；老師的 app 會顯示，也會匯出到 CSV。
 
 網站要放在 https 網址上（例如 GitHub Pages）才能使用。想先試試看效果，可以打開 `web/demo.html`。
 
@@ -63,10 +64,11 @@
 如果遊戲不是網頁（例如用 Python 寫的），可以自己組出下面這行文字，再轉成 QR code：
 
 ```
-CP1|遊戲代號|班級|座號|關卡清單|簽章
+CP2|遊戲代號|班級|座號|關卡清單|附加資料|簽章
 ```
 
 - 關卡清單：每一關寫成 `關卡代號~關卡名稱~分數~滿分~完成時間`，關卡之間用 `;` 隔開。完成時間用 Unix 秒數。
+- 附加資料：可以留空。要記錄用時就寫 `elapsed=秒數`。
 - 簽章：用下面的關鍵字，對前面整段文字（包含最後一個 `|`）算 HMAC-SHA256，再取 base64url 編碼的前 16 個字元。
 
 關鍵字：
@@ -82,13 +84,14 @@ import base64, hashlib, hmac, time
 
 KEY = b"7wtYq6EDHQJxEa6gbWgOLRac-2bzsmJv"
 
-def classpass_text(game, cls, seat, levels):
-    """levels: [(關卡代號, 關卡名稱, 分數, 滿分), ...]"""
+def classpass_text(game, cls, seat, levels, elapsed=None):
+    """levels: [(關卡代號, 關卡名稱, 分數, 滿分), ...]；elapsed: 用時（秒），可省略"""
     now = int(time.time())
     items = ";".join(f"{code}~{title}~{score}~{max_}~{now}" for code, title, score, max_ in levels)
-    body = f"CP1|{game}|{cls}|{int(seat)}|{items}|"
+    extras = "" if elapsed is None else f"elapsed={round(elapsed)}"
+    body = f"CP2|{game}|{cls}|{int(seat)}|{items}|{extras}|"
     mac = hmac.new(KEY, body.encode("utf-8"), hashlib.sha256).digest()
     return body + base64.urlsafe_b64encode(mac).decode().rstrip("=")[:16]
 
-print(classpass_text("wang-fraction-pizza", "701", 7, [("level-1", "第一關", 3, 3)]))
+print(classpass_text("wang-fraction-pizza", "701", 7, [("level-1", "第一關", 3, 3)], elapsed=754))
 ```

@@ -15,12 +15,14 @@ data class LevelResult(
     val doneAt: Long,
 )
 
-/** 一張驗證通過的 QR code：一個學生在一個遊戲的所有已過關關卡。 */
+/** 一張驗證通過的 QR code：一個學生在一個遊戲的所有已過關關卡，加上遊戲層級的附加資料。 */
 data class Pass(
     val game: String,
     val cls: String,
     val seat: Int,
     val levels: List<LevelResult>,
+    /** 附加資料（CP2），依 QR 裡的順序；CP1 一律是空的 */
+    val extras: Map<String, String> = emptyMap(),
 )
 
 sealed interface ParseResult {
@@ -28,9 +30,11 @@ sealed interface ParseResult {
     data class Invalid(val reason: String) : ParseResult
 }
 
-/** CP1 協定，規則見 docs/PROTOCOL.md。這裡不依賴 Android，JVM 單元測試可直接跑。 */
+/** CP2（與舊版 CP1）協定，規則見 docs/PROTOCOL.md。這裡不依賴 Android，JVM 單元測試可直接跑。 */
 object Protocol {
-    private const val VERSION = "CP1"
+    /** 版本 → 用 | 切開的段數 */
+    private val VERSIONS = mapOf("CP1" to 6, "CP2" to 7)
+    private const val EXTRAS_MAX = 10
     private const val KEY = "7wtYq6EDHQJxEa6gbWgOLRac-2bzsmJv"
     private const val CLASS_MAX = 20
     private const val TITLE_MAX = 10
@@ -40,6 +44,8 @@ object Protocol {
     private val UINT = Regex("0|[1-9][0-9]{0,17}")
     private val SEAT = Regex("[1-9][0-9]{0,2}")
     private val SIG = Regex("[A-Za-z0-9_-]{16}")
+    private val EXTRA_KEY = Regex("[a-z0-9-]{1,20}")
+    private val EXTRA_VALUE = Regex("[A-Za-z0-9.-]{1,40}")
     private val FORBIDDEN = Regex("[|;~\\u0000-\\u001f\\u007f]")
 
     fun sign(body: String): String {
@@ -52,10 +58,10 @@ object Protocol {
     fun parse(text: String): ParseResult {
         val parts = text.split('|')
         if (!parts[0].startsWith("CP") || parts.size < 2) return invalid("不是過關用的 QR code")
-        if (parts[0] != VERSION) return invalid("不認得的版本 ${parts[0].take(8)}，app 可能需要更新")
-        if (parts.size != 6) return invalid("格式不對（欄位數 ${parts.size}）")
+        val expected = VERSIONS[parts[0]] ?: return invalid("不認得的版本 ${parts[0].take(8)}，app 可能需要更新")
+        if (parts.size != expected) return invalid("格式不對（欄位數 ${parts.size}）")
 
-        val sig = parts[5]
+        val sig = parts.last()
         val body = text.substring(0, text.length - sig.length)
         if (!SIG.matches(sig) ||
             !MessageDigest.isEqual(sign(body).toByteArray(), sig.toByteArray())
@@ -64,6 +70,7 @@ object Protocol {
         }
 
         val (_, game, cls, seat, list) = parts
+        val extras = if (parts.size == 7) parseExtras(parts[5]) ?: return invalid("附加資料格式不對") else emptyMap()
         if (!CODE.matches(game)) return invalid("遊戲代號格式不對")
         if (!isCleanText(cls, CLASS_MAX)) return invalid("班級格式不對")
         if (!SEAT.matches(seat)) return invalid("座號格式不對")
@@ -87,7 +94,26 @@ object Protocol {
             if (m < 1 || s > m) return invalid("分數超過滿分")
             levels += LevelResult(level, title, s, m, doneAt.toLong())
         }
-        return ParseResult.Valid(Pass(game, cls, seat.toInt(), levels))
+        return ParseResult.Valid(Pass(game, cls, seat.toInt(), levels, extras))
+    }
+
+    /** 「key=value,key=value」→ 有序 Map；空字串是沒有附加資料；不合規則回傳 null */
+    private fun parseExtras(text: String): Map<String, String>? {
+        if (text.isEmpty()) return emptyMap()
+        val items = text.split(',')
+        if (items.size > EXTRAS_MAX) return null
+        val map = LinkedHashMap<String, String>()
+        for (item in items) {
+            val eq = item.indexOf('=')
+            if (eq < 0) return null
+            val key = item.substring(0, eq)
+            val value = item.substring(eq + 1)
+            if (!EXTRA_KEY.matches(key) || !EXTRA_VALUE.matches(value)) return null
+            if (map.put(key, value) != null) return null
+        }
+        // 已定義的 key 有自己的值規則
+        map["elapsed"]?.let { if (!UINT.matches(it)) return null }
+        return map
     }
 
     private fun isCleanText(s: String, max: Int): Boolean =
