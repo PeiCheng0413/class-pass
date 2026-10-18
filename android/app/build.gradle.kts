@@ -15,9 +15,24 @@ android {
         versionName = "0.1.0"
     }
 
+    // 正式版簽章：金鑰與密碼放在 ~/.gradle/gradle.properties（CLASSPASS_*），不進 repo。
+    // 沒設定時 release 不簽章，assembleRelease 產出的 APK 無法安裝。
+    val storeFile = providers.gradleProperty("CLASSPASS_STORE_FILE").orNull
+    signingConfigs {
+        if (storeFile != null) {
+            create("release") {
+                this.storeFile = file(storeFile)
+                storePassword = providers.gradleProperty("CLASSPASS_STORE_PASSWORD").get()
+                keyAlias = providers.gradleProperty("CLASSPASS_KEY_ALIAS").get()
+                keyPassword = providers.gradleProperty("CLASSPASS_KEY_PASSWORD").get()
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
+            signingConfig = signingConfigs.findByName("release")
         }
     }
 
