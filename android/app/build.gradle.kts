@@ -11,8 +11,8 @@ android {
         applicationId = "io.github.peicheng0413.classpass"
         minSdk = 26
         targetSdk = 37
-        versionCode = 3
-        versionName = "0.3.0"
+        versionCode = 4
+        versionName = "0.3.1"
     }
 
     // 正式版簽章：金鑰與密碼放在 ~/.gradle/gradle.properties（CLASSPASS_*），不進 repo。

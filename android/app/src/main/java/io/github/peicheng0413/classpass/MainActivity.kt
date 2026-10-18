@@ -63,10 +63,7 @@ import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import kotlinx.coroutines.delay
 import java.io.File
-import java.time.Instant
-import java.time.LocalDate
 import java.time.LocalDateTime
-import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
 private val Green = Color(0xFF15803D)
@@ -217,6 +214,10 @@ private fun ScanResultCard(event: ScanEvent, modifier: Modifier = Modifier) {
                         val p = event.pass
                         Text("${p.cls} 班 ${p.seat} 號", fontSize = 40.sp, fontWeight = FontWeight.Bold)
                         Text(p.game, fontSize = 18.sp, color = Color(0xFF444444))
+                        // 這張 QR 帶的用時（存檔時同一學生留最短的）
+                        p.extras["elapsed"]?.toLongOrNull()?.let {
+                            Text("用時 " + formatElapsed(it), fontSize = 24.sp, fontWeight = FontWeight.Bold)
+                        }
                         Spacer(Modifier.height(8.dp))
                         p.levels.zip(event.outcomes).forEach { (lv, outcome) ->
                             LevelRow(lv.title, lv.score, lv.max, tag = when (outcome) {
@@ -323,14 +324,10 @@ private fun RecordsScreen(store: Store) {
                                 Text("刪除", fontSize = 20.sp, color = Red)
                             }
                         }
-                        // 各關中最近一次收到新成績的時間；有用時就接在後面（附加資料以學生為單位，各列都一樣）
-                        val elapsed = list.first().elapsed
-                        Text(
-                            "收到時間 " + formatScanTime(list.maxOf { it.scannedAt }) +
-                                (elapsed?.let { "　用時 " + formatElapsed(it) } ?: ""),
-                            fontSize = 18.sp,
-                            color = Color(0xFF444444),
-                        )
+                        // 用時以學生為單位，各列都一樣；收到時間只放在 CSV
+                        list.first().elapsed?.let {
+                            Text("用時 " + formatElapsed(it), fontSize = 18.sp, color = Color(0xFF444444))
+                        }
                         list.forEach { LevelRow(it.title, it.score, it.max) }
                     }
                 }
@@ -398,13 +395,6 @@ private fun FilterButton(label: String, selected: Boolean, onClick: () -> Unit) 
     } else {
         OutlinedButton(onClick = onClick) { Text(label, fontSize = 20.sp, color = Ink) }
     }
-}
-
-/** 今天的只顯示「14:32」，其他日子顯示「10/17 14:32」。 */
-private fun formatScanTime(sec: Long): String {
-    val t = Instant.ofEpochSecond(sec).atZone(ZoneId.systemDefault())
-    val pattern = if (t.toLocalDate() == LocalDate.now()) "HH:mm" else "M/d HH:mm"
-    return DateTimeFormatter.ofPattern(pattern).format(t)
 }
 
 /** 寫成 CSV 放在 cache/exports/，再透過 Android 分享選單送到 Line、Email 或雲端硬碟。 */
