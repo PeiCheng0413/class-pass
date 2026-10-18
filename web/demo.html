@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>class-pass 測試頁</title>
+<style>
+  body { margin: 0; padding: 24px 16px; background: #f5f5f4; color: #111;
+    font: 22px/1.5 -apple-system, "PingFang TC", "Noto Sans TC", "Microsoft JhengHei", sans-serif; }
+  main { max-width: 640px; margin: 0 auto; }
+  h1 { font-size: 32px; margin: 0 0 8px; }
+  section { background: #fff; border: 2px solid #d6d3d1; border-radius: 14px; padding: 16px 20px; margin: 20px 0; }
+  h2 { font-size: 24px; margin: 0 0 12px; }
+  label { display: block; margin: 10px 0 4px; font-weight: 700; }
+  input { width: 100%; box-sizing: border-box; font-size: 22px; padding: 8px 10px;
+    border: 2px solid #555; border-radius: 8px; }
+  .row { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 16px; }
+  .row > div { flex: 1 1 120px; }
+  button { font: inherit; padding: 10px 20px; border-radius: 10px; border: 2px solid #111;
+    background: #fff; color: #111; cursor: pointer; }
+  button.main { background: #1d4ed8; border-color: #1d4ed8; color: #fff; }
+  pre { white-space: pre-wrap; word-break: break-all; font-size: 18px; background: #f5f5f4;
+    padding: 10px; border-radius: 8px; margin: 12px 0 0; }
+  .ok { color: #15803d; font-weight: 700; }
+  .bad { color: #b91c1c; font-weight: 700; }
+</style>
+</head>
+<body>
+<main>
+  <h1>class-pass 測試頁</h1>
+  <p>給老師試掃用。按「過關」會跳出 QR code，用老師端 app 掃描看看。</p>
+
+  <section>
+    <h2>模擬過關</h2>
+    <div class="row">
+      <div><label for="game">遊戲代號</label><input id="game" value="demo"></div>
+      <div><label for="level">關卡代號</label><input id="level" value="level-1"></div>
+    </div>
+    <label for="title">關卡名稱（只顯示在網頁上）</label><input id="title" value="第一關">
+    <div class="row">
+      <div><label for="score">分數</label><input id="score" type="number" min="0" value="3"></div>
+      <div><label for="max">滿分</label><input id="max" type="number" min="1" value="3"></div>
+    </div>
+    <div class="row">
+      <button class="main" id="pass">過關</button>
+      <button id="list">我的過關紀錄</button>
+      <button id="me">修改班級座號</button>
+    </div>
+    <pre id="out" hidden></pre>
+  </section>
+
+  <section>
+    <h2>一次交出多關</h2>
+    <p>模擬遊戲最後把四關成績一起交出去（遊戲代號用上面填的）。分數可以改。</p>
+    <div class="row">
+      <div><label for="b1">第一關（滿分 3）</label><input id="b1" type="number" min="0" max="3" value="3"></div>
+      <div><label for="b2">第二關（滿分 5）</label><input id="b2" type="number" min="0" max="5" value="4"></div>
+    </div>
+    <div class="row">
+      <div><label for="b3">第三關（滿分 3）</label><input id="b3" type="number" min="0" max="3" value="2"></div>
+      <div><label for="b4">第四關（滿分 100）</label><input id="b4" type="number" min="0" max="100" value="85"></div>
+    </div>
+    <div class="row"><button class="main" id="batch">交出四關成績</button></div>
+    <pre id="batchout" hidden></pre>
+  </section>
+
+  <section>
+    <h2>簽章自我檢查</h2>
+    <p>用 docs/PROTOCOL.md 的測試向量確認這台電腦算出來的簽章正確。</p>
+    <button id="selftest">開始檢查</button>
+    <pre id="selfout" hidden></pre>
+  </section>
+</main>
+
+<script src="classpass.js"></script>
+<script>
+  var $ = function (id) { return document.getElementById(id); };
+
+  $('pass').onclick = function () {
+    ClassPass.show({
+      game: $('game').value.trim(),
+      level: $('level').value.trim(),
+      title: $('title').value.trim(),
+      score: Number($('score').value),
+      max: Number($('max').value)
+    }).then(function (text) {
+      $('out').hidden = false;
+      $('out').textContent = 'QR code 內容：\n' + text;
+    }, function () {});
+  };
+  $('batch').onclick = function () {
+    ClassPass.show({
+      game: $('game').value.trim(),
+      levels: [
+        { level: 'level-1', title: '第一關', score: Number($('b1').value), max: 3 },
+        { level: 'level-2', title: '第二關', score: Number($('b2').value), max: 5 },
+        { level: 'level-3', title: '第三關', score: Number($('b3').value), max: 3 },
+        { level: 'level-4', title: '第四關', score: Number($('b4').value), max: 100 }
+      ]
+    }).then(function (text) {
+      $('batchout').hidden = false;
+      $('batchout').textContent = 'QR code 內容：\n' + text;
+    }, function () {});
+  };
+  $('list').onclick = function () { ClassPass.showPassed($('game').value.trim()); };
+  $('me').onclick = function () { ClassPass.editStudent(); };
+
+  var L = function (level, title, score, max, time) {
+    return { level: level, title: title, score: score, max: max, time: time };
+  };
+  var VECTORS = [
+    ['robot-farm-practice', { cls: '701', no: '7' }, [
+      L('check-dry', '澆水', 3, 3, 1760000000), L('harvest', '收成', 2, 3, 1760000300),
+      L('sort-seeds', '分種子', 3, 3, 1760000900), L('night-watch', '守夜', 1, 3, 1760001500)],
+     'CP1|robot-farm-practice|701|7|check-dry~澆水~3~3~1760000000;harvest~收成~2~3~1760000300;sort-seeds~分種子~3~3~1760000900;night-watch~守夜~1~3~1760001500|SjdxLZjvH956zyUB'],
+    // 故意加髒字元、全形數字與前導零、空白名稱，清理後要一樣
+    ['demo', { cls: ' 8年3班|\n', no: '０23' }, [L('level-2', ' ~;', 85, 100, 1760003600)],
+     'CP1|demo|8年3班|23|level-2~level-2~85~100~1760003600|627Pc4prOkVRT51j']
+  ];
+  $('selftest').onclick = function () {
+    Promise.all(VECTORS.map(function (v) { return ClassPass.build(v[0], v[1], v[2]); }))
+      .then(function (got) {
+        var lines = got.map(function (g, i) {
+          return (g === VECTORS[i][3] ? '✓ ' : '✗ ') + g;
+        });
+        var allOk = got.every(function (g, i) { return g === VECTORS[i][3]; });
+        $('selfout').hidden = false;
+        $('selfout').innerHTML = '<span class="' + (allOk ? 'ok">全部正確' : 'bad">有錯誤') + '</span>\n' +
+          lines.join('\n').replace(/&/g, '&amp;').replace(/</g, '&lt;');
+      }, function (err) {
+        $('selfout').hidden = false;
+        $('selfout').innerHTML = '<span class="bad">' + err.message + '</span>';
+      });
+  };
+</script>
+</body>
+</html>
