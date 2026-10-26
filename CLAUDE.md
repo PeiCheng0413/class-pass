@@ -12,7 +12,7 @@ README 是寫給其他老師看的使用說明；只跟維護者有關的事情�
 
 ## 開發
 
-- 網頁端本機測試：`python3 -m http.server 8765 --directory web`，打開 http://localhost:8765/demo.html，按「簽章自我檢查」核對測試向量。
+- 網頁端本機測試：`python3 -m http.server 8765 --directory web`，打開 `demo.html`，按「簽章自我檢查」核對測試向量。
 - Android 需要 JDK 17 和 Android SDK（`android/local.properties` 的 `sdk.dir`，這個檔不進 git）；Gradle 用 wrapper 固定版本。
 
   ```bash
